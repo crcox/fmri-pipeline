@@ -1,0 +1,130 @@
+---
+sub-001:
+  run-01: acq-domain
+  run-02: acq-danger
+  run-03: acq-size
+  run-04: acq-orthography
+  run-05: acq-domain
+  run-06: acq-danger
+  run-07: acq-size
+  run-08: acq-orthography
+
+sub-002:
+  run-01: acq-domain
+  run-02: acq-size
+  run-03: acq-danger
+  run-04: acq-orthography
+  run-05: acq-domain
+  run-06: acq-size
+  run-07: acq-danger
+  run-08: acq-orthography
+
+sub-003:
+  run-01: acq-domain
+  run-02: acq-size
+  run-03: acq-orthography
+  run-04: acq-danger
+  run-05: acq-domain
+  run-06: acq-size
+  run-07: acq-orthography
+  run-08: acq-danger
+
+sub-004:
+  run-01: acq-domain
+  run-02: acq-danger
+  run-03: acq-orthography
+  run-04: acq-size
+  run-05: acq-domain
+  run-06: acq-danger
+  run-07: acq-orthography
+  run-08: acq-size
+
+sub-005:
+  run-01: acq-domain
+  run-02: acq-orthography
+  run-03: acq-size
+  run-04: acq-danger
+  run-05: acq-domain
+  run-06: acq-orthography
+  run-07: acq-size
+  run-08: acq-danger
+
+sub-006:
+  run-01: acq-domain
+  run-02: acq-orthography
+  run-03: acq-danger
+  run-04: acq-size
+  run-05: acq-domain
+  run-06: acq-orthography
+  run-07: acq-danger
+  run-08: acq-size
+
+sub-007:
+  run-01: acq-danger
+  run-02: acq-domain
+  run-03: acq-size
+  run-04: acq-orthography
+  run-05: acq-danger
+  run-06: acq-domain
+  run-07: acq-size
+  run-08: acq-orthography
+
+sub-008:
+  run-01: acq-danger
+  run-02: acq-domain
+  run-03: acq-orthography
+  run-04: acq-size
+  run-05: acq-danger
+  run-06: acq-domain
+  run-07: acq-orthography
+  run-08: acq-size
+
+sub-009:
+  run-01: acq-danger
+  run-02: acq-size
+  run-03: acq-orthography
+  run-04: acq-domain
+  run-05: acq-danger
+  run-06: acq-size
+  run-07: acq-orthography
+  run-08: acq-domain
+
+sub-010:
+  run-01: acq-danger
+  run-02: acq-orthography
+  run-03: acq-domain
+  run-04: acq-size
+  run-05: acq-danger
+  run-06: acq-orthography
+  run-07: acq-domain
+  run-08: acq-size
+
+sub-011:
+  run-01: acq-danger
+  run-02: acq-orthography
+  run-03: acq-size
+  run-04: acq-domain
+  run-05: acq-danger
+  run-06: acq-orthography
+  run-07: acq-size
+  run-08: acq-domain
+
+sub-012:
+  run-01: acq-size
+  run-02: acq-domain
+  run-03: acq-danger
+  run-04: acq-orthography
+  run-05: acq-size
+  run-06: acq-domain
+  run-07: acq-danger
+  run-08: acq-orthography
+
+sub-013:
+  run-01: acq-size
+  run-02: acq-domain
+  run-03: acq-orthography
+  run-04: acq-danger
+  run-05: acq-size
+  run-06: acq-domain
+  run-07: acq-orthography
+  run-08: acq-danger

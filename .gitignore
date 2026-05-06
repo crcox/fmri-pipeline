@@ -1,0 +1,7 @@
+.venv/
+bids/
+derivatives/
+license/
+work/
+**/__pycache__/
+fix_names/old_monolith.py
