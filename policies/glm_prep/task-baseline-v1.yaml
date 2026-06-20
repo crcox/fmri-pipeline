@@ -1,0 +1,525 @@
+# ===============================
+# GLM Confound Selection Policy
+# ===============================
+# Purpose:
+#   Define nuisance regressors for task-based GLMs using fMRIPrep outputs
+#   and optional tedana components.
+#
+# Scope:
+#   - Single-subject, single-run GLM preparation
+#   - Designed for trial-wise beta estimation and MVPA
+#
+# Philosophy:
+#   - Model noise explicitly inside the GLM
+#   - Avoid pre-denoising steps
+#   - Favor conservative, interpretable regressors
+
+
+version: 1.0
+name: "task_glm_baseline_with_tedana"
+
+# --------------------------------------------------
+# Motion regressors
+# --------------------------------------------------
+# CONCEPTS
+# ========
+# Motion regressors model residual signal changes caused by head motion
+# that persist after motion correction (realignment).
+#
+# During realignment, each fMRI volume is spatially aligned to a reference
+# volume (typically the first volume in the run, or the mean of all volumes).
+# This alignment is achieved using a rigid-body transformation with six
+# parameters:
+#
+#   - 3 translations (x, y, z; in millimeters)
+#   - 3 rotations (pitch, roll, yaw; in radians)
+#
+# These parameters describe the position of each volume relative to the
+# reference volume, *not* relative to the previous timepoint.
+#
+# The estimated motion parameters are saved as time series (one row per
+# volume) and can be included in the GLM as nuisance regressors.
+#
+# Temporal derivatives
+# --------------------
+# The temporal derivative of each motion parameter is defined as the
+# difference between successive timepoints:
+#
+#   derivative(t) = motion(t) - motion(t - 1)
+#
+# These terms capture how much the head position changed between volumes. This
+# matches the natural understanding of the first derivative as "rate of change"
+# or "velocity". The derivatives contribute additional variance beyond static
+# position alone.
+#
+# Squared terms
+# -------------
+# Squared motion parameters and derivatives are often included to capture
+# nonlinear (quadratic) effects of motion on the BOLD signal.
+#
+#
+# MOTION MODELS
+# =============
+# These correspond to standard motion parameter expansions used in fMRI GLMs
+# (e.g., Friston et al., 1996; widely adopted in later preprocessing pipelines).
+#
+# base (6 parameters)
+# -------------------
+# The six rigid-body motion parameters:
+# trans_x, trans_y, trans_z, rot_x, rot_y, rot_z
+#
+# derivatives (12 parameters)
+# ---------------------------
+# The base model + the temporal derivative of each parameter
+#
+# full (24 parameters)
+# --------------------
+# The derivatives model + the square of each regressor (both base and
+# derivative terms)
+#
+# Summary:
+#   base         = position (6)
+#   derivatives  = position + rate of change (12)
+#   full         = position + rate + nonlinear terms (24)
+#
+# References
+# ----------
+# Friston, K. J., et al. (1996). Movement‐related effects in fMRI time‐series.
+# Magnetic Resonance in Medicine, 35(3), 346-355.
+#
+# See also:
+# - SPM documentation on realignment and motion parameters
+# - Andy's Brain Book
+motion:
+  include: true
+  model: base
+
+
+# --------------------------------------------------
+# Physiological / scanner noise (aCompCor)
+# --------------------------------------------------
+# aCompCor models physiological and other nuisance signals using principal
+# component analysis (PCA) applied to time series extracted from regions
+# where neural (task-related) signal is not expected.
+#
+# These regions are typically:
+#
+#   - white matter (WM)
+#   - cerebrospinal fluid (CSF)
+#   - union of WM and CSF
+#
+# The underlying assumption is that high-variance signals in these regions
+# reflect structured noise (e.g., respiration, cardiac fluctuations) that
+# affects the entire dataset.
+#
+# PCA decomposition
+# -----------------
+# PCA is applied to the voxelwise time series within the selected noise
+# region, producing:
+#
+#   - a set of orthogonal components (principal components)
+#   - associated eigenvalues (variance explained)
+#
+# Each component represents a direction of shared variance within the
+# noise ROI, ordered from highest to lowest variance explained.
+#
+# Key properties of PCA components:
+#
+#   - ordered by variance explained
+#   - mutually orthogonal
+#   - form a basis for the variance within the ROI
+#
+# This ordering allows for principled truncation of the component set.
+#
+# Selection problem
+# -----------------
+# aCompCor selection determines how many principal components to include
+# as nuisance regressors in the GLM.
+#
+# Unlike ICA (tedana), PCA provides a natural ordering, so component
+# selection corresponds to choosing how much of the variance structure
+# in the noise ROI to model.
+#
+# Importantly:
+#
+#   - "variance explained" refers to variance within the noise ROI
+#   - it does NOT represent a fraction of total noise in the dataset
+#   - components may still contain mixtures of signal and noise
+#
+# Therefore, selection should be interpreted as controlling how much of
+# the dominant variance structure in the noise ROI is modeled.
+#
+# Model specification
+# -------------------
+# aCompCor is specified as a model over the PCA basis.
+#
+# Two modes are supported:
+#
+#   1. fixed number of components
+#   2. variance-explained threshold
+#
+# ------------------------------------------------------------------
+# Fixed number of components
+# ------------------------------------------------------------------
+# Select the first N principal components.
+#
+# Example:
+#
+#   model:
+#     n_components: 5
+#
+# Meaning:
+#   Include the first 5 principal components (highest variance)
+#
+# Rationale:
+#   - Simple and commonly used in practice
+#   - Provides fixed model dimensionality across datasets
+#   - Can be determined by looking at a plot of the SingularValues
+#
+# ------------------------------------------------------------------
+# Variance-explained threshold
+# ------------------------------------------------------------------
+# Select the smallest set of components whose cumulative variance
+# explained exceeds a specified threshold.
+#
+# Example:
+#
+#   model:
+#     variance_explained: 0.5
+#
+# Meaning:
+#   Include enough components to explain at least 50% of the variance
+#   in the noise ROI
+#
+# Rationale:
+#   - Adapts the number of components to dataset-specific variance
+#   - Provides a principled truncation of the PCA basis
+#
+# Notes:
+#   - The number of resulting components depends on the eigenvalue spectrum
+#   - Datasets with flatter spectra will require more components
+#
+# Region selection
+# ----------------
+# The noise ROI used for PCA can be configured.
+#
+# Example:
+#
+#   region: wm | csf | combined
+#
+# Meaning:
+#   wm       = white matter only
+#   csf      = CSF only
+#   combined = union of WM and CSF (commonly used)
+#
+# Summary
+# -------
+#   PCA basis is ordered and orthogonal → principled truncation
+#
+#   n_components         = fixed-size model
+#   variance_explained   = adaptive model based on variance coverage
+#
+# Key principle:
+#   aCompCor models the dominant variance structure in a noise-defined
+#   subspace, and includes those components explicitly in the GLM.
+#   No variance is removed from the data prior to modeling.
+#
+# References
+# ----------
+# Behzadi, Y., et al. (2007). A component based noise correction method
+# (CompCor) for BOLD and perfusion based fMRI. NeuroImage.
+#
+# fMRIPrep / C-PAC documentation for practical implementations
+#
+acompcor:
+  mask: combined
+  model:
+    variance_explained: 0.5
+
+acomp_cor:
+
+  # Strategy:
+  #   "anat_combined" = WM + CSF combined PCA space
+  method: "anat_combined"
+
+  # Number of components to include
+  # Conservative default to balance noise removal vs DOF
+  n_components: 5
+
+  # High-pass filtered prior to PCA (standard in fMRIPrep)
+  high_pass_required: true
+
+  # Rationale:
+  #   Captures structured noise not explained by motion alone
+
+
+# --------------------------------------------------
+# Low-frequency drift (temporal filtering via regressors)
+# --------------------------------------------------
+drift:
+  include: true
+
+  # Cosine drift model (SPM-style)
+  model: "cosine"
+
+  # High-pass cutoff in seconds
+  # (matches common SPM/FSL defaults)
+  high_pass_cutoff: 128
+
+  # Rationale:
+  #   Remove slow scanner drift without filtering task signal
+
+
+# --------------------------------------------------
+# Spike regression (scrubbing)
+# --------------------------------------------------
+scrubbing:
+  include: false
+
+  # If enabled:
+  method: "fd_dvars"
+
+  fd_threshold: 0.5        # mm
+  dvars_threshold: 1.5     # standardized DVARS
+
+  # Minimum contiguous volumes to keep
+  min_segment_length: 5
+
+  # Rationale:
+  #   Disabled by default for task GLMs to preserve DOF
+  #   Use only if motion is excessive
+
+
+# --------------------------------------------------
+# Global signal regression
+# --------------------------------------------------
+global_signal:
+  include: false
+
+  # Rationale:
+  #   Controversial, may distort task-related variance
+  #   Excluded by default for task GLMs
+
+
+# --------------------------------------------------
+# ICA-based denoising (fMRIPrep/AROMA)
+# --------------------------------------------------
+ica_aroma:
+  include: false
+
+  # Rationale:
+  #   More appropriate for resting-state analyses
+  #   Avoid mixing ICA pre-denoising with explicit GLM modeling
+
+
+# --------------------------------------------------
+# Tedana (ME-ICA) components
+# --------------------------------------------------
+# Tedana performs multi-echo independent component analysis (ME-ICA). It
+# decomposes the signal from multiple echoes into a single set of independent
+# components with associated spatial maps and time series.
+#
+# Each component represents a distinct source of variance in the data.
+# Tedana classifies components using TE-dependence and other metrics into:
+#
+#   - accepted (BOLD-like signal)
+#   - rejected (non-BOLD signal; e.g., motion, physiology, scanner artifacts)
+#
+# This classification is provided in a derivative file for each run with the
+# suffix:
+#
+#   desc-tedana_metrics.tsv
+#
+# This classification reflects how tedana constructs its denoised BOLD time
+# series. It does not prescribe how components must be used in downstream GLM
+# analyses.
+#
+# In this pipeline, we do not perform pre-GLM denoising. Instead, we treat
+# ICA components as a structured basis for modeling nuisance variance
+# explicitly in the GLM.
+#
+# Selection problem
+# -----------------
+# Unlike principal components (PCA), independent components (ICA) components:
+#
+#   - are not ordered
+#   - are not orthogonal
+#   - do not have a single cannonical quality metric
+#
+# Therefore, selecting which components to include as nuisance regressors
+# is a modeling decision that must be specified explicitly.
+#
+# Selection
+# ---------
+# Selection defines which ICA components are included as nuisance regressors
+# in the GLM. This is expressed as a declarative rule over component metadata.
+#
+# Two selection modes are supported:
+#
+#   1. classification-based (default)
+#   2. metric-based (future extension)
+#
+# Exactly one selection mode must be specified.
+#
+# ------------------------------------------------------------------
+# Classification-based selection (default)
+# ------------------------------------------------------------------
+# Select components based on tedana's classification labels.
+#
+# Default behavior:
+#
+#   selection:
+#     classification: {}
+#
+# Meaning:
+#   Include all components where classification == "rejected"
+#
+# Rationale:
+#   - Uses tedana's TE-dependent classification
+#   - Maximally captures non-BOLD variance identified by ME-ICA
+#   - Avoids arbitrary truncation of the ICA basis
+#
+# Tag-based refinement (optional)
+# ------------------------------
+# Tedana provides additional information via the "classification_tags"
+# column, including labels such as:
+#
+#   - "Unlikely BOLD"                        (high-confidence rejection)
+#   - "Less likely BOLD"                    (lower-confidence rejection)
+#   - "manual reclassify"  (somone inspected and rejected the component)
+#
+# These tags can be used to refine component selection.
+#
+# Example: high-confidence rejection only
+#
+#   selection:
+#     classification:
+#       tags:
+#         include: ["Unlikely BOLD"]
+#
+# Meaning:
+#   Include only rejected components tagged as "Unlikely BOLD"
+#
+# Example: explicitly include both confidence levels, omitting manual codes
+#
+#   selection:
+#     classification:
+#       tags:
+#         include: ["Unlikely BOLD", "Less likely BOLD"]
+#
+# Meaning:
+#   Equivalent to the default behavior, but explicitly restricts selection
+#   to known rejection tags
+#
+# Notes:
+#   - If "tags" are not specified, all rejected components are included
+#   - Tag-based filtering refines (and may restrict) tedana's classification
+#   - Manual reclassifications are respected through the classification column
+#
+# ------------------------------------------------------------------
+# Metric-based selection (future extension)
+# ------------------------------------------------------------------
+# Select components using tedana-derived metrics (e.g., rho, kappa).
+#
+# Example (not yet implemented):
+#
+#   selection:
+#     metric:
+#       name: rho
+#       top_k: 10
+#
+# Intended behavior:
+#   Rank components by a specified metric and include a subset
+#
+# Rationale:
+#   - Provides a mechanism for controlling model complexity
+#   - Allows reinterpretation of ICA outputs beyond binary classification
+#
+# Important:
+#   ICA components are not inherently ordered, so any metric-based selection is
+#   heuristic and must be interpreted cautiously. This includes tedana's own
+#   selection of "rejected" components.
+#
+# Summary
+# -------
+#   classification = use tedana's classification (default and recommended)
+#   metric         = metric-based selection (future)
+#
+# Key principle:
+#   ICA component selection is treated as an explicit modeling decision,
+#   and no variance is removed from the data prior to GLM estimation.
+#
+# References
+# ----------
+# Kundu, P., et al. (2012). "Differentiating BOLD and non-BOLD signals in fMRI
+#   time series using multi-echo EPI." NeuroImage 60(3): 1759-1770.
+#
+# Tedana documentation:
+# https://tedana.readthedocs.io/en/stable/
+#
+tedana:
+  selection:
+    classification: {}
+
+
+# --------------------------------------------------
+# Non-steady-state volumes
+# --------------------------------------------------
+non_steady_state:
+  include: true
+
+  # Method:
+  #   Add one regressor per flagged volume
+  #   (instead of discarding volumes)
+  strategy: "one_hot_regressors"
+
+  # Rationale:
+  #   Preserve temporal alignment while modeling scanner warm-up
+
+
+# --------------------------------------------------
+# Regressor preprocessing
+# --------------------------------------------------
+preprocessing:
+  demean: true
+  standardize: false
+
+  # Rationale:
+  #   Demeaning improves numerical stability
+  #   Standardization optional (depends on modeling framework)
+
+
+# --------------------------------------------------
+# Quality control thresholds (not regressors)
+# --------------------------------------------------
+quality_control:
+  report:
+    - "framewise_displacement"
+    - "dvars"
+    - "num_regressors"
+    - "num_timepoints"
+    - "design_matrix_rank"
+
+  exclude_run_if:
+    mean_fd: 0.5
+    percent_fd_above_0_9: 20
+
+  # Rationale:
+  #   Use QC to reject bad runs instead of overfitting regressors
+
+
+# --------------------------------------------------
+# Output structure
+# --------------------------------------------------
+output:
+  include_design_matrix: true
+  include_metadata_json: true
+  include_qc_report: true
+
+  format:
+    design_matrix: "tsv"
+    metadata: "json"
+    qc: "json"
+
+  # Naming convention
+  prefix: "glm_prep"
