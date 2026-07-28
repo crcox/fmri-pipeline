@@ -8,8 +8,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPTS_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 COMMON_LIB="${SCRIPTS_ROOT}/lib/common.sh"
 if [[ ! -r "${COMMON_LIB}" ]]; then
-  echo "ERROR: Cannot read common library: ${COMMON_LIB}" >&2
-  exit 2
+    echo "ERROR: Cannot read common library: ${COMMON_LIB}" >&2
+    exit 2
 fi
 # shellcheck source=lib/common.sh
 source "${COMMON_LIB}"
@@ -30,19 +30,20 @@ source "${COMMON_LIB}"
 DO_CLEANUP="${DO_CLEANUP:-false}"
 DRY_RUN="${DRY_RUN:-false}"
 DEBUG="${DEBUG:-false}"
+IGNORE_COMPLETION="${IGNORE_COMPLETION:-false}"
 
 
 usage() {
-  echo "Usage: $0 <fmriprep-derivs> <tedana-derivs> <work-root> <tedana-image> <participant-label> <run> <num-echoes>"
-  echo "Example:"
-  echo "$0 \\"
-  echo "    /path/to/derivatives/fmriprep \\ # input"
-  echo "    /path/to/derivatives/tedana \\ # output"
-  echo "    /path/to/work \\"
-  echo "    local/tedana:26.0.3 \\"
-  echo "    001 \\"
-  echo "    01 \\"
-  echo "    3"
+    echo "Usage: $0 <fmriprep-derivs> <tedana-derivs> <work-root> <tedana-image> <participant-label> <run> <num-echoes>"
+    echo "Example:"
+    echo "$0 \\"
+    echo "    /path/to/derivatives/fmriprep \\ # input"
+    echo "    /path/to/derivatives/tedana \\ # output"
+    echo "    /path/to/work \\"
+    echo "    local/tedana:26.0.3 \\"
+    echo "    001 \\"
+    echo "    01 \\"
+    echo "    3"
 }
 
 info_banner() {
@@ -102,10 +103,60 @@ find_echo_json_files() {
         sort --field-separator='_' --key='4,5'
 }
 
+find_input_mask_files() {
+    local func_dir="$1"
+    local run=${2:-"??"}
+    local mask_glob="sub-${SUBJECT}_*_run-${run}_desc-brain_mask.nii.gz"
+    local mask_re="sub-${SUBJECT}_task-semjudge_acq-[a-z]\+_run-[0-9]\{2\}_desc-brain_mask.nii.gz"
+    debug "Find input brainmask Files ---"
+    debug "fMRI Prep Func. Dir  : $func_dir"
+    debug "File selection glob  : $mask_glob"
+    debug "File verification re : $mask_re"
+
+    find "${func_dir}" -maxdepth 1 -type f -name "${mask_glob}" -printf '%f\n' |
+        sed -n /"${mask_re}"/p |
+        sort --field-separator='_' --key='4,5'
+}
+
+find_T1_mask_files() {
+    local func_dir="$1"
+    local run=${2:-"??"}
+    local mask_glob="sub-${SUBJECT}_*_run-${run}_space-T1w_desc-brain_mask.nii.gz"
+    local mask_re="sub-${SUBJECT}_task-semjudge_acq-[a-z]\+_run-[0-9]\{2\}_space-T1w_desc-brain_mask.nii.gz"
+    debug "Find T1 brainmask Files ---"
+    debug "fMRI Prep Func. Dir  : $func_dir"
+    debug "File selection glob  : $mask_glob"
+    debug "File verification re : $mask_re"
+
+    find "${func_dir}" -maxdepth 1 -type f -name "${mask_glob}" -printf '%f\n' |
+        sed -n /"${mask_re}"/p |
+        sort --field-separator='_' --key='4,5'
+}
+
+find_MNI_mask_files() {
+    local func_dir="$1"
+    local run=${2:-"??"}
+    local mask_glob="sub-${SUBJECT}_*_run-${run}_space-MNI152NLin2009cAsym_desc-brain_mask.nii.gz"
+    local mask_re="sub-${SUBJECT}_task-semjudge_acq-[a-z]\+_run-[0-9]\{2\}_space-MNI152NLin2009cAsym_desc-brain_mask.nii.gz"
+    debug "Find MNI brainmask Files ---"
+    debug "fMRI Prep Func. Dir  : $func_dir"
+    debug "File selection glob  : $mask_glob"
+    debug "File verification re : $mask_re"
+
+    find "${func_dir}" -maxdepth 1 -type f -name "${mask_glob}" -printf '%f\n' |
+        sed -n /"${mask_re}"/p |
+        sort --field-separator='_' --key='4,5'
+}
+
 validate_complete() {
-    if [[ -f "${TEDANA_RUN_DIR}/sub-${SUBJECT}_run-${RUN}_tedana_report.html" ]]; then
-        echo "sub-${SUBJECT} already has tedana outputs. Skipping." >&2
-        exit 5
+    local sentinal_file="sub-${SUBJECT}_run-${RUN}_tedana_report.html"
+    if [[ -f "${TEDANA_RUN_DIR}/${sentinal_file}" ]]; then
+        if [[ "${IGNORE_COMPLETION}" == "true" ]]; then
+            echo "[IGNORE_COMPLETION] ${sentinal_file} exists, but tedana will run."
+        else
+            echo "sub-${SUBJECT} already processed. Skipping." >&2
+            exit 5
+        fi
     fi
 }
 
@@ -124,6 +175,24 @@ validate_inputs() {
     mapfile -t echo_json_files < <(find_echo_json_files "$func_dir" "${RUN}")
     if [[ "${#echo_json_files[@]}" -ne "$NUM_ECHOES" ]]; then
         die_missing_inputs "ERROR: Expected ${NUM_ECHOES} echo json files, but found ${#echo_json_files[@]}."
+    fi
+
+    mapfile -t input_mask_files < <(find_input_mask_files "$func_dir" "${RUN}")
+    if [[ "${#input_mask_files[@]}" -ne 1 ]]; then
+        die_missing_inputs \
+            "ERROR: Expected 1 input brain mask, but found ${#input_mask_files[@]}."
+    fi
+
+    mapfile -t T1_mask_files < <(find_T1_mask_files "$func_dir" "${RUN}")
+    if [[ "${#T1_mask_files[@]}" -ne 1 ]]; then
+        die_missing_inputs \
+            "ERROR: Expected 1 T1 brain mask, but found ${#T1_mask_files[@]}."
+    fi
+
+    mapfile -t MNI_mask_files < <(find_MNI_mask_files "$func_dir" "${RUN}")
+    if [[ "${#MNI_mask_files[@]}" -ne 1 ]]; then
+        die_missing_inputs \
+            "ERROR: Expected 1 MNI brain mask, but found ${#MNI_mask_files[@]}."
     fi
 }
 
@@ -148,6 +217,10 @@ run_tedana() {
         echo_files_container+=("/data/$func")
     done
 
+    local first_echo="${echo_files[0]}"
+    local stem=${first_echo%_echo-?_desc-preproc_bold.nii.gz}
+    local input_mask_file="${stem}_desc-brain_mask.nii.gz"
+
     local cmd=(
         podman run --rm
         -v "${func_dir}:/data:ro,Z"
@@ -156,10 +229,15 @@ run_tedana() {
         "${TEDANA_IMAGE}"
         -d "${echo_files_container[@]}"
         -e "${echo_times[@]}"
+        --mask "/data/$input_mask_file"
         --out-dir "/out"
         --prefix "sub-${SUBJECT}_run-${RUN}"
         --verbose
     )
+
+    if [[ "${IGNORE_COMPLETION}" == true ]]; then
+        cmd+=(--overwrite)
+    fi
 
     if [[ "${DRY_RUN}" == true ]]; then
         printf '[DRY-RUN] %q ' "${cmd[@]}"
