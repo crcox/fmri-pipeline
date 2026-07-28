@@ -8,8 +8,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPTS_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 COMMON_LIB="${SCRIPTS_ROOT}/lib/common.sh"
 if [[ ! -r "${COMMON_LIB}" ]]; then
-  echo "ERROR: Cannot read common library: ${COMMON_LIB}" >&2
-  exit 2
+    echo "ERROR: Cannot read common library: ${COMMON_LIB}" >&2
+    exit 2
 fi
 # shellcheck source=lib/common.sh
 source "${COMMON_LIB}"

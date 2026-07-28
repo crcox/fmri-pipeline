@@ -9,8 +9,8 @@ SCRIPTS_ROOT="$(cd "${ORCHESTRATORS_DIR}/.." && pwd)"
 WORKERS_DIR="${SCRIPTS_ROOT}/workers"
 COMMON_LIB="${SCRIPTS_ROOT}/lib/common.sh"
 if [[ ! -r "${COMMON_LIB}" ]]; then
-  echo "ERROR: Cannot read common library: ${COMMON_LIB}" >&2
-  exit 2
+    echo "ERROR: Cannot read common library: ${COMMON_LIB}" >&2
+    exit 2
 fi
 # shellcheck source=lib/common.sh
 source "${COMMON_LIB}"
