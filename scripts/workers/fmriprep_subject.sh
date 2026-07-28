@@ -8,8 +8,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPTS_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 COMMON_LIB="${SCRIPTS_ROOT}/lib/common.sh"
 if [[ ! -r "${COMMON_LIB}" ]]; then
-  echo "ERROR: Cannot read common library: ${COMMON_LIB}" >&2
-  exit 2
+    echo "ERROR: Cannot read common library: ${COMMON_LIB}" >&2
+    exit 2
 fi
 # shellcheck source=lib/common.sh
 source "${COMMON_LIB}"
@@ -29,7 +29,6 @@ source "${COMMON_LIB}"
 #   130: Interrupted by SIGINT
 #   143: Terminated by SIGTERM
 
-CLEANUP_MODE="${CLEANUP_MODE:-auto}"
 DO_CLEANUP="${DO_CLEANUP:-false}"
 DRY_RUN="${DRY_RUN:-false}"
 DEBUG="${DEBUG:-false}"
@@ -76,9 +75,10 @@ debug() {
 }
 
 validate_complete() {
-    if [[ -f "${DERIV_ROOT}/sub-${SUBJECT}.html" ]]; then
+    local sentinal_file="sub-${SUBJECT}.html"
+    if [[ -f "${DERIV_ROOT}/${sentinal_file}" ]]; then
         if [[ "${IGNORE_COMPLETION}" == "true" ]]; then
-            echo "[IGNORE_COMPLETION] sub-${SUBJECT}.html exists, but fmriprep will run."
+            echo "[IGNORE_COMPLETION] ${sentinal_file} exists, but fmriprep will run."
         else
             echo "sub-${SUBJECT} already processed. Skipping." >&2
             exit 5
