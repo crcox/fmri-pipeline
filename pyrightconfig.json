@@ -10,6 +10,7 @@
     }
   ],
   "typeCheckingMode": "strict",
+  "reportMissingTypeStubs": "none",
   "reportMissingParameterType": "warning",
   "reportMissingTypeArgument": "warning",
   "reportUnknownVariableType": "warning",
