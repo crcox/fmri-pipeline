@@ -1,24 +1,33 @@
 import pandas as pd
 
-from glm_prep.types import Vector
+from glm_prep.artifacts import Regressor, RegressorInfo, RegressorSource
+from glm_prep.confounds import (
+    ACompCorConfounds,
+    ACompCorMetadata,
+    DriftConfounds,
+    TedanaComponents,
+    TedanaMetadata,
+)
 from glm_prep.errors import DataContractError, PolicyDefinitionError
 from glm_prep.models import (
-    MotionPolicy,
+    ACompCorFixedModel,
+    ACompCorPolicy,
+    ACompCorVarianceModel,
     MotionModel,
-    TedanaPolicy,
+    MotionPolicy,
     TedanaClassificationSelection,
     TedanaMetricSelection,
-    ACompCorPolicy,
-    ACompCorFixedModel,
-    ACompCorVarianceModel
+    TedanaPolicy,
 )
-from glm_prep.confounds import TedanaComponents, TedanaMetadata, ACompCorConfounds, ACompCorMetadata
-from glm_prep.artifacts import RegressorInfo, RegressorSource, Regressor
-
+from glm_prep.types import Vector
 
 MOTION_BASE = [
-    "trans_x", "trans_y", "trans_z",
-    "rot_x", "rot_y", "rot_z",
+    "trans_x",
+    "trans_y",
+    "trans_z",
+    "rot_x",
+    "rot_y",
+    "rot_z",
 ]
 
 
@@ -38,7 +47,9 @@ def build_motion(policy: MotionPolicy, df: pd.DataFrame) -> list[Regressor]:
 
     regressors: list[Regressor] = []
 
-    def build_regressor(name: str, kind: str, base_name: str, df: pd.DataFrame) -> Regressor:
+    def build_regressor(
+        name: str, kind: str, base_name: str, df: pd.DataFrame
+    ) -> Regressor:
         if name not in df.columns:
             raise DataContractError(f"Missing motion column '{name}' in confounds")
 
@@ -51,7 +62,7 @@ def build_motion(policy: MotionPolicy, df: pd.DataFrame) -> list[Regressor]:
             column=col_idx,
             metadata={
                 "motion_param": base_name,
-                "term": kind,   # base, derivative, square, derivative_square
+                "term": kind,  # base, derivative, square, derivative_square
             },
         )
         return Regressor(values=values, info=info)
@@ -60,40 +71,69 @@ def build_motion(policy: MotionPolicy, df: pd.DataFrame) -> list[Regressor]:
 
     # Base parameters
     for name in MOTION_BASE:
-        regressors.append(build_regressor(
-            name,
-            kind="base",
-            base_name=name,
-            df=df
-        ))
+        regressors.append(build_regressor(name, kind="base", base_name=name, df=df))
 
     # Add derivatives
     if model in {MotionModel.DERIVATIVES, MotionModel.FULL}:
         for name in MOTION_BASE:
-            regressors.append(build_regressor(
-                derivative_name(name),
-                kind="derivative",
-                base_name=name,
-                df=df,
-            ))
+            regressors.append(
+                build_regressor(
+                    derivative_name(name),
+                    kind="derivative",
+                    base_name=name,
+                    df=df,
+                )
+            )
 
     # Add squares
     if model == MotionModel.FULL:
         for name in MOTION_BASE:
-            regressors.append(build_regressor(
-                square_name(name),
-                kind="square",
-                base_name=name,
-                df=df,
-            ))
+            regressors.append(
+                build_regressor(
+                    square_name(name),
+                    kind="square",
+                    base_name=name,
+                    df=df,
+                )
+            )
 
         for name in MOTION_BASE:
-            regressors.append(build_regressor(
-                deriv_square_name(name),
-                kind="derivative_square",
-                base_name=name,
-                df=df,
-            ))
+            regressors.append(
+                build_regressor(
+                    deriv_square_name(name),
+                    kind="derivative_square",
+                    base_name=name,
+                    df=df,
+                )
+            )
+
+    return regressors
+
+
+def build_drift(
+    confounds: DriftConfounds,
+) -> list[Regressor]:
+
+    regressors: list[Regressor] = []
+
+    # ASSUMPTION: fmri prep only models drift with discrete cosine transform (DCT)
+    metadata = {
+        "model": "cosine",
+        "source": "fmri_prep",
+    }
+
+    for name in sorted:
+        regressors.append(
+            Regressor(
+                values=confounds[name],
+                info=RegressorInfo(
+                    name=name,
+                    source=RegressorSource.DRIFT,
+                    column=-1,
+                    metadata=metadata,
+                ),
+            )
+        )
 
     return regressors
 
@@ -141,18 +181,13 @@ def build_tedana(
             selected_ids = [cid for cid, _ in scored[: selection.top_k]]
 
         elif selection.threshold is not None:
-            selected_ids = [
-                cid
-                for cid, val in scored
-                if val >= selection.threshold
-            ]
+            selected_ids = [cid for cid, val in scored if val >= selection.threshold]
 
     else:
         raise PolicyDefinitionError("Unknown Tedana selection type")
 
     # --- BUILD REGRESSORS ---
     for component_id in selected_ids:
-
         if component_id not in components:
             raise DataContractError(
                 f"Tedana component {component_id!r} missing from components"
@@ -181,67 +216,74 @@ def build_tedana(
     return regressors
 
 
+_COMPONENT_RE = re.compile(r"^(?:a|w|c)_comp_cor_(\d+)$")
+
+
+def acompcor_index(name: str) -> int:
+    match = _COMPONENT_RE.fullmatch(name)
+    if match is None:
+        raise DataContractError(f"Invalid aCompCor component name {name!r}")
+
+    return int(match.group(1))
+
+
 def build_acompcor(
     policy: ACompCorPolicy,
     confounds: ACompCorConfounds,
-    cumulative_map: ACompCorMetadata | None = None,
+    metadata: ACompCorMetadata,
 ) -> list[Regressor]:
 
-    missing = set(confounds) - set(cumulative_map)
+    selected_metadata = {
+        name: info for name, info in metadata.items() if info.mask == policy.mask
+    }
+
+    missing = set(selected_metadata) - set(confounds)
 
     if missing:
         raise DataContractError(
-            "aCompCor metadata is missing entries for:\n"
-            + "\n".join(f"  - {m}" for m in sorted(missing))
+            "Missing aCompCor vectors:\n" + "\n".join(sorted(missing))
         )
 
-    regressors: list[Regressor] = []
+    sorted_names = sorted(
+        selected_metadata,
+        key=acompcor_index,
+    )
 
-    def acompcor_index(name: str) -> int:
-        return int(name.split("_")[-1])
-
-    sorted_names = sorted(confounds, key=acompcor_index)
-    selected_names: list[str] = []
     model = policy.model
 
-    # --- FIXED MODEL ---
     if isinstance(model, ACompCorFixedModel):
         selected_names = sorted_names[: model.n_components]
 
-    # --- VARIANCE MODEL ---
     elif isinstance(model, ACompCorVarianceModel):
-
-        if cumulative_map is None:
-            raise DataContractError(
-                "Variance model requires cumulative variance information"
-            )
-
-        selected_names = []
+        selected_names: list[str] = []
 
         for name in sorted_names:
             selected_names.append(name)
 
-            if cumulative_map[name] >= model.variance_explained:
+            info = selected_metadata[name]
+
+            if info.cumulative_variance_explained >= model.variance_explained:
                 break
 
     else:
-        raise PolicyDefinitionError("Unknown aCompCor model")
+        raise ValueError(f"Unsupported aCompCor model {type(model)!r}")
 
-    # --- BUILD REGRESSORS ---
+    regressors: list[Regressor] = []
+
     for name in selected_names:
-        values = confounds[name]
+        info = selected_metadata[name]
 
         regressors.append(
             Regressor(
-                values=values,
+                values=confounds[name],
                 info=RegressorInfo(
                     name=name,
                     source=RegressorSource.ACOMPCOR,
                     column=-1,
                     metadata={
-                        "component": name,
-                        "index": acompcor_index(name),
-                        "model": type(model).__name__,
+                        "mask": info.mask.value,
+                        "variance_explained": info.variance_explained,
+                        "cumulative_variance_explained": info.cumulative_variance_explained,
                     },
                 ),
             )

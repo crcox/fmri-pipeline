@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Literal
 from enum import Enum
-from glm_prep.types import Vector
-import numpy as np
+from typing import Any
+
+from glm_prep.errors import DataContractError
+from glm_prep.types import Matrix, Vector
 
 
 @dataclass(frozen=True)
@@ -13,7 +14,7 @@ class DesignMatrix:
     A fully expanded, time-aligned regressor matrix ready for GLM fitting
     """
 
-    matrix: np.ndarray
+    matrix: Matrix
     regressors: list[RegressorInfo]
 
     @property
@@ -26,10 +27,17 @@ class DesignMatrix:
 
     def __post_init__(self):
         if len(self.column_names) != self.ncol:
-            raise ValueError(
+            raise DataContractError(
                 f"Column name count ({len(self.column_names)}) does not match "
                 f"number of regressors ({self.ncol})."
             )
+
+        if self.matrix.ndim != 2:
+            raise DataContractError(
+                "The design matrix must be a 2-dimensional nparray."
+                f"  Attempted to define with {self.matrix.ndim} dimensions."
+            )
+
 
 class RegressorSource(str, Enum):
     MOTION = "motion"
@@ -53,14 +61,13 @@ class Regressor:
     info: RegressorInfo
 
 
-
 @dataclass(frozen=True)
 class TimingMetadata:
     """
     Explicit timing parameters for the run.
     """
 
-    tr: float                   # repetition time in seconds
+    tr: float  # repetition time in seconds
     n_volumes: int
     time_units: str = "seconds"
 
@@ -113,4 +120,3 @@ class GLMPrepResult:
     design_matrix: DesignMatrix
     timing: TimingMetadata
     quality: QualityReport
-
