@@ -338,7 +338,7 @@ write\_json(...)
 #### Defines
 
 ```python
-build\_artifacts(
+build_artifacts(
     bold\_path,
     events\_path,
     confounds\_path,
