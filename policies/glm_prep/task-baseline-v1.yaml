@@ -236,22 +236,6 @@ acompcor:
   model:
     variance_explained: 0.5
 
-acomp_cor:
-
-  # Strategy:
-  #   "anat_combined" = WM + CSF combined PCA space
-  method: "anat_combined"
-
-  # Number of components to include
-  # Conservative default to balance noise removal vs DOF
-  n_components: 5
-
-  # High-pass filtered prior to PCA (standard in fMRIPrep)
-  high_pass_required: true
-
-  # Rationale:
-  #   Captures structured noise not explained by motion alone
-
 
 # --------------------------------------------------
 # Low-frequency drift (temporal filtering via regressors)
