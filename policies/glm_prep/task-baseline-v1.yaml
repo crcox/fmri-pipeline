@@ -1,5 +1,25 @@
+version: 1.0
+name: "task_glm_baseline_with_tedana"
+
 # ===============================
-# GLM Confound Selection Policy
+# GLM Event Modeling Policies
+# ===============================
+# Purpose:
+#   Define a regressor for each event or condition by applying a HRF model.
+#
+# Scope:
+#   - Single-subject, single-run GLM preparation
+#   - Designed for trial-wise beta estimation and MVPA
+#
+#
+# --------------------------------------------------
+# Stimulus Regressors
+# --------------------------------------------------
+stimulus:
+  hrf_model: spm
+
+# ===============================
+# GLM Confound Selection Policies
 # ===============================
 # Purpose:
 #   Define nuisance regressors for task-based GLMs using fMRIPrep outputs
@@ -13,10 +33,6 @@
 #   - Model noise explicitly inside the GLM
 #   - Avoid pre-denoising steps
 #   - Favor conservative, interpretable regressors
-
-
-version: 1.0
-name: "task_glm_baseline_with_tedana"
 
 # --------------------------------------------------
 # Motion regressors
@@ -241,15 +257,11 @@ acompcor:
 # Low-frequency drift (temporal filtering via regressors)
 # --------------------------------------------------
 drift:
-  include: true
+  source: fmriprep
 
-  # Cosine drift model (SPM-style)
-  model: "cosine"
-
-  # High-pass cutoff in seconds
-  # (matches common SPM/FSL defaults)
-  high_pass_cutoff: 128
-
+  # source: generated
+  # high_pass: 128
+  
   # Rationale:
   #   Remove slow scanner drift without filtering task signal
 
