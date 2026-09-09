@@ -1,27 +1,62 @@
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+from glm_prep.errors import ParseError
 from glm_prep.models import (
-    MotionModel,
-    MotionPolicy,
     ACompCorFixedModel,
-    ACompCorVarianceModel,
-    ACompCorModel,
     ACompCorMask,
+    ACompCorModel,
     ACompCorPolicy,
+    ACompCorVarianceModel,
     DriftCosineFromTSV,
     DriftCosineGenerated,
     DriftModel,
     DriftPolicy,
+    GLMPolicy,
+    HRFModel,
+    MotionModel,
+    MotionPolicy,
+    StimulusPolicy,
     TedanaClassificationSelection,
     TedanaMetricSelection,
-    TedanaSelection,
     TedanaPolicy,
-    GLMPolicy
+    TedanaSelection,
 )
-from glm_prep.errors import ParseError
-from pathlib import Path
-import yaml
 
 
-def _parse_motion(data: dict | None, path: list[str]) -> MotionPolicy | None:
+def _parse_stimulus(data: dict[str, Any] | None, path: list[str]) -> StimulusPolicy:
+    if data is None:
+        raise ParseError(
+            "Missing stimulus policy",
+            path=path,
+            expected="key 'stimulus'",
+            received=data,
+        )
+
+    if "hrf_model" not in data:
+        raise ParseError(
+            "stimulus policy requires 'hrf_model'",
+            path=path,
+            expected="key 'hrf_model'",
+            received=data,
+        )
+
+    try:
+        model = HRFModel(data["hrf_model"])
+    except ValueError:
+        raise ParseError(
+            "Invalid HRFModel model",
+            path=path + ["hrf_model"],
+            expected="one of ['spm', 'fsl']",
+            received=data["hrf_model"],
+        )
+
+    return StimulusPolicy(hrf_model=model)
+
+
+def _parse_motion(data: dict[str, Any] | None, path: list[str]) -> MotionPolicy | None:
     if data is None:
         return None
 
@@ -30,7 +65,7 @@ def _parse_motion(data: dict | None, path: list[str]) -> MotionPolicy | None:
             "motion policy requires 'model'",
             path=path,
             expected="key 'model'",
-            received=data
+            received=data,
         )
 
     try:
@@ -38,34 +73,32 @@ def _parse_motion(data: dict | None, path: list[str]) -> MotionPolicy | None:
     except ValueError:
         raise ParseError(
             "Invalid motion model",
-            path=path + ['model'],
+            path=path + ["model"],
             expected="one of ['base', 'derivatives', or 'full']",
-            received=data['model']
+            received=data["model"],
         )
 
-    return MotionPolicy(
-        model=model
-    )
+    return MotionPolicy(model=model)
 
 
-def _parse_acompcor_model(data: dict, path: list[str]) -> ACompCorModel:
+def _parse_acompcor_model(data: dict[str, Any], path: list[str]) -> ACompCorModel:
     if "n_components" in data:
         return ACompCorFixedModel(n_components=data["n_components"])
 
     if "variance_explained" in data:
-        return ACompCorVarianceModel(
-            variance_explained=data["variance_explained"]
-        )
+        return ACompCorVarianceModel(variance_explained=data["variance_explained"])
 
     raise ParseError(
         "acompcor model must specify either 'n_components' or 'variance_explained'",
         path=path,
         expected="one of ['n_components', 'variance_explained']",
-        received=data
+        received=data,
     )
 
 
-def _parse_acompcor(data: dict | None, path: list[str]) -> ACompCorPolicy | None:
+def _parse_acompcor(
+    data: dict[str, Any] | None, path: list[str]
+) -> ACompCorPolicy | None:
     if data is None:
         return None
 
@@ -74,7 +107,7 @@ def _parse_acompcor(data: dict | None, path: list[str]) -> ACompCorPolicy | None
             "acompcor policy requires 'mask'",
             path=path,
             expected="'mask: wm' OR 'mask: 'csf' OR 'mask: combined'.",
-            received=data
+            received=data,
         )
 
     if "model" not in data:
@@ -85,79 +118,86 @@ def _parse_acompcor(data: dict | None, path: list[str]) -> ACompCorPolicy | None
                 "A 'model' field must exist under 'acompcor', which should "
                 "itself contain either 'n_components' or 'variance_explained'"
             ),
-            received=data
+            received=data,
         )
 
     try:
-        mask = ACompCorMask(data['mask'])
+        mask = ACompCorMask(data["mask"])
     except ValueError:
         raise ParseError(
             "Invalid acompcor mask",
-            path=path + ['mask'],
+            path=path + ["mask"],
             expected="one of ['wm', 'csf', or 'combined']",
-            received=data['mask']
+            received=data["mask"],
         )
 
-    model_data = data['model']
+    model_data = data["model"]
 
-    model = _parse_acompcor_model(model_data, path=path + ['model'])
+    model = _parse_acompcor_model(model_data, path=path + ["model"])
 
     return ACompCorPolicy(mask=mask, model=model)
 
 
-def _parse_drift_cosine(data: dict, path: list[str]) -> DriftModel:
-    if data == {}:
-        return DriftCosineFromTSV()
-
-    elif "generate" in data:
-        generate = data["generate"]
-
-        if "high_pass" not in generate:
-            raise ParseError(
-                "cosine.generate requires 'high_pass'",
-                path=path,
-                expected="key 'high_pass'",
-                received=data
-            )
-
-        return DriftCosineGenerated(high_pass=generate["high_pass"])
-
-    raise ParseError(
-        "Invalid drift.cosine specification",
-        path=path,
-        expected=(
-            "Either an empty dict '{}' signalling that cosine bases should be "
-            "read from desc-confounds_timeseries.tsv or 'generate' if you intend "
-            "to generate a cosine basis set."
-        ),
-        received=data
-    )
-
-
-def _parse_drift(data: dict | None, path: list[str]) -> DriftPolicy | None:
+def _parse_drift(data: dict[str, Any] | None, path: list[str]) -> DriftPolicy | None:
     if data is None:
         return None
 
-    if "cosine" not in data:
+    if "source" not in data:
         raise ParseError(
-            "drift policy currently supports only 'cosine'",
+            "drift policy must specify whether to generate cosine bases or load from fmriprep derivatives.",
             path=path,
             expected=(
-                "A 'cosine' field under drift, containing either an empty dict "
-                "'{}' signalling the cosine bases should be read from "
-                "desc-confounds_timeseries.tsv or 'generate' if you intend to "
-                "generate a cosine basis set."
+                "A 'source' field under drift, containing either 'fmriprep' or 'generate'. "
+                "'fmriprep signals that cosine bases should be read from "
+                "desc-confounds_timeseries.tsv, while 'generate' signals you wish to "
+                "generate a cosine basis set with nilearn."
             ),
-            received=data
+            received=data,
         )
 
-    cosine_data = data["cosine"]
-    model = _parse_drift_cosine(cosine_data, path=path+['cosine'])
+    source = data["source"]
+
+    if source == "fmriprep" and "high_pass" in data:
+        raise ParseError(
+            (
+                "When the source is 'fmriprep', cosine bases are read from file. "
+                "'high_pass' should only be set when source='generate'."
+            ),
+            path=path,
+            expected=(
+                "Either source='generate' or for the 'high_pass' field to be omitted."
+            ),
+            received=data,
+        )
+
+    if source == "fmriprep":
+        model: DriftModel = DriftCosineFromTSV()
+
+    elif source == "generate":
+        if "high_pass" not in data:
+            raise ParseError(
+                "drift.source='generate' requires 'high_pass'",
+                path=path,
+                expected="key 'high_pass'",
+                received=data,
+            )
+
+        model: DriftModel = DriftCosineGenerated(high_pass=data["high_pass"])
+
+    else:
+        raise ParseError(
+            "Invalid drift.source specification",
+            path=path,
+            expected="Either 'fmriprep' or 'generate'.",
+            received=source,
+        )
 
     return DriftPolicy(model=model)
 
 
-def _parse_tedana_classification(data: dict, path: list[str]) -> TedanaClassificationSelection:
+def _parse_tedana_classification(
+    data: dict[str, Any], path: list[str]
+) -> TedanaClassificationSelection:
     if not data:
         return TedanaClassificationSelection()
 
@@ -167,13 +207,15 @@ def _parse_tedana_classification(data: dict, path: list[str]) -> TedanaClassific
     return TedanaClassificationSelection(tags_include=include)
 
 
-def _parse_tedana_metric(data: dict, path: list[str]) -> TedanaMetricSelection:
+def _parse_tedana_metric(
+    data: dict[str, Any], path: list[str]
+) -> TedanaMetricSelection:
     if "name" not in data:
         raise ParseError(
             "metric selection requires 'name'",
             path=path,
             expected="key 'name'",
-            received=data
+            received=data,
         )
 
     return TedanaMetricSelection(
@@ -185,23 +227,24 @@ def _parse_tedana_metric(data: dict, path: list[str]) -> TedanaMetricSelection:
 
 def _parse_tedana_selection(data: dict[str, Any], path: list[str]) -> TedanaSelection:
     if "classification" in data:
-        model = _parse_tedana_classification(data["classification"], path=path + ['classification'])
+        model = _parse_tedana_classification(
+            data["classification"], path=path + ["classification"]
+        )
         return model
 
     if "metric" in data:
-        model = _parse_tedana_metric(data["metric"], path=path+['metric'])
+        model = _parse_tedana_metric(data["metric"], path=path + ["metric"])
         return model
 
     raise ParseError(
         "tedana selection must specify 'classification' or 'metric'",
         path=path,
         expected="one of ['classification', 'metric']",
-        received=data
+        received=data,
     )
 
 
-
-def _parse_tedana(data: dict | None, path: list[str]) -> TedanaPolicy | None:
+def _parse_tedana(data: dict[str, Any] | None, path: list[str]) -> TedanaPolicy | None:
     if data is None:
         return None
 
@@ -210,15 +253,15 @@ def _parse_tedana(data: dict | None, path: list[str]) -> TedanaPolicy | None:
             "tedana policy requires 'selection'",
             path=path,
             expected="key 'selection'",
-            received=data
+            received=data,
         )
 
-    selection = _parse_tedana_selection(data["selection"], path=path + ['selection'])
+    selection = _parse_tedana_selection(data["selection"], path=path + ["selection"])
 
     return TedanaPolicy(selection=selection)
 
 
-def _load_yaml(path: Path) -> dict:
+def _load_yaml(path: Path) -> dict[str, Any]:
     with open(path, "r") as f:
         data = yaml.safe_load(f)
 
@@ -230,9 +273,9 @@ def _load_yaml(path: Path) -> dict:
 def load_policy(path: Path) -> GLMPolicy:
     data = _load_yaml(path)
     return GLMPolicy(
-        motion=_parse_motion(data.get("motion"), path=['motion']),
-        acompcor=_parse_acompcor(data.get("acompcor"), path=['acompcor']),
-        drift=_parse_drift(data.get("drift"), path=['drift']),
-        tedana=_parse_tedana(data.get("tedana"), path=['tedana']),
+        stimulus=_parse_stimulus(data.get("stimulus"), path=["stimulus"]),
+        motion=_parse_motion(data.get("motion"), path=["motion"]),
+        acompcor=_parse_acompcor(data.get("acompcor"), path=["acompcor"]),
+        drift=_parse_drift(data.get("drift"), path=["drift"]),
+        tedana=_parse_tedana(data.get("tedana"), path=["tedana"]),
     )
-

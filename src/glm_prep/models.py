@@ -1,17 +1,25 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Sequence
 from enum import Enum
+
 
 class HRFModel(str, Enum):
     SPM = "spm"
     FSL = "fsl"
 
+
+@dataclass(frozen=True)
+class StimulusPolicy:
+    hrf_model: HRFModel
+
+
 class MotionModel(str, Enum):
     BASE = "base"
     DERIVATIVES = "derivatives"
     FULL = "full"
+
 
 @dataclass(frozen=True)
 class MotionPolicy:
@@ -30,7 +38,9 @@ class ACompCorFixedModel:
 
     def __post_init__(self):
         if self.n_components < 1:
-            raise ValueError(f"Invalid value for n_components ({self.n_components!r}). It must be a positive integer (n > 0).")
+            raise ValueError(
+                f"Invalid value for n_components ({self.n_components!r}). It must be a positive integer (n > 0)."
+            )
 
 
 @dataclass(frozen=True)
@@ -39,7 +49,9 @@ class ACompCorVarianceModel:
 
     def __post_init__(self):
         if not (0 < self.variance_explained <= 1):
-            raise ValueError(f"Invalid value for variance_explained ({self.variance_explained!r}). It must be in greater than 0 and less than or equal to 1.")
+            raise ValueError(
+                f"Invalid value for variance_explained ({self.variance_explained!r}). It must be in greater than 0 and less than or equal to 1."
+            )
 
 
 ACompCorModel = ACompCorFixedModel | ACompCorVarianceModel
@@ -58,7 +70,6 @@ class DriftCosineFromTSV:
 
     Includes all cosine_XX columns present in the TSV.
     """
-    pass
 
 
 @dataclass(frozen=True)
@@ -83,6 +94,7 @@ class DriftCosineGenerated:
 
 
 DriftModel = DriftCosineFromTSV | DriftCosineGenerated
+
 
 @dataclass(frozen=True)
 class DriftPolicy:
@@ -136,8 +148,8 @@ class TedanaPolicy:
 
 @dataclass(frozen=True)
 class GLMPolicy:
+    stimulus: StimulusPolicy
     motion: MotionPolicy | None
-    acompcor: ACompCorPolicy | None 
+    acompcor: ACompCorPolicy | None
     drift: DriftPolicy | None
     tedana: TedanaPolicy | None
-

@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from enum import Enum
 from typing import Any
 
+import numpy as np
+
 from glm_prep.errors import DataContractError
-from glm_prep.types import Matrix, Vector
+from glm_prep.type_aliases import Matrix, Vector
 
 
 @dataclass(frozen=True)
@@ -39,7 +41,20 @@ class DesignMatrix:
             )
 
 
+@dataclass(frozen=True)
+class DesignMatrixSummary:
+    n_timepoints: int
+    n_regressors: int
+    matrix_rank: int
+    stimulus: int
+    drift: int
+    motion: int
+    acompcor: int
+    tedana: int
+
+
 class RegressorSource(str, Enum):
+    STIMULUS = "stimulus"
     MOTION = "motion"
     ACOMPCOR = "acompcor"
     DRIFT = "drift"
@@ -53,6 +68,30 @@ class RegressorInfo:
     source: RegressorSource
     column: int
     metadata: dict[str, Any]
+    diagnostics: RegressorDiagnostics
+
+
+@dataclass(frozen=True)
+class RegressorDiagnostics:
+    mean: float
+    std: float
+    min: float
+    max: float
+
+    @classmethod
+    def from_values(
+        cls,
+        values: np.ndarray,
+    ) -> RegressorDiagnostics:
+        return cls(
+            mean=float(np.mean(values)),
+            std=float(np.std(values)),
+            min=float(np.min(values)),
+            max=float(np.max(values)),
+        )
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
 
 
 @dataclass(frozen=True)

@@ -1,6 +1,6 @@
 import json
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
@@ -12,7 +12,7 @@ from glm_prep.errors import DataContractError
 from glm_prep.models import (
     ACompCorMask,
 )
-from glm_prep.types import Vector
+from glm_prep.type_aliases import Vector
 
 MotionConfounds = Mapping[str, Vector]
 ACompCorConfounds = Mapping[str, Vector]
@@ -73,12 +73,28 @@ _ACOMPCOR_PREFIXES: tuple[str, ...] = (
     "c_comp_cor_",
 )
 
+_MOTION_BASE_SET = {
+    "trans_x",
+    "trans_y",
+    "trans_z",
+    "rot_x",
+    "rot_y",
+    "rot_z",
+}
 
-def validate_tedana_metrics(df: pd.DataFrame, metrics: Sequence[str]) -> None:
-    missing: list[str] = []
-    for metric in metrics:
-        if metric not in df.columns:
-            missing.append(metric)
+
+def validate_motion(motion: MotionConfounds, required: set[str]) -> None:
+    missing = required - set(motion.keys())
+
+    if missing:
+        raise DataContractError(
+            "Missing required motion basis columns:\n"
+            + "\n".join(f"  - {m!r}" for m in missing)
+        )
+
+
+def validate_tedana_metrics(df: pd.DataFrame, required: set[str]) -> None:
+    missing = required - set(df.columns)
 
     if missing:
         raise DataContractError(
@@ -115,6 +131,7 @@ def parse_confounds_timeseries(
         for col in df.columns
         if col.startswith(("trans_", "rot_"))
     }
+    validate_motion(motion, _MOTION_BASE_SET)
     acompcor: dict[str, Vector] = {
         col: get_vector(df, col)
         for col in df.columns
@@ -142,7 +159,7 @@ def read_tedana_metrics(path: Path) -> pd.DataFrame:
 
 
 def parse_tedana_metrics(df: pd.DataFrame) -> TedanaMetadata:
-    required_fields = _TEDANA_REQUIRED_CLASSIFICATION + _TEDANA_REQUIRED_METRICS
+    required_fields = set(_TEDANA_REQUIRED_CLASSIFICATION + _TEDANA_REQUIRED_METRICS)
     validate_tedana_metrics(df, required_fields)
     records = df.to_dict(orient="records")
 
@@ -220,7 +237,7 @@ def parse_acompcor_metadata(json_dict: dict[str, Any]) -> ACompCorMetadata:
             raise DataContractError(f"Metadata entry for {name!r} must be an object")
 
         try:
-            mask = ACompCorMask(data["Mask"])
+            mask = ACompCorMask(str(data["Mask"]).lower())
             retained = bool(data["Retained"])
             singular_value = float(data["SingularValue"])
             variance_explained = float(data["VarianceExplained"])

@@ -1,10 +1,16 @@
-import pandas as pd
+import re
 
-from glm_prep.artifacts import Regressor, RegressorInfo, RegressorSource
+from glm_prep.artifacts import (
+    Regressor,
+    RegressorDiagnostics,
+    RegressorInfo,
+    RegressorSource,
+)
 from glm_prep.confounds import (
     ACompCorConfounds,
     ACompCorMetadata,
     DriftConfounds,
+    MotionConfounds,
     TedanaComponents,
     TedanaMetadata,
 )
@@ -13,15 +19,16 @@ from glm_prep.models import (
     ACompCorFixedModel,
     ACompCorPolicy,
     ACompCorVarianceModel,
+    DriftCosineFromTSV,
+    DriftPolicy,
     MotionModel,
     MotionPolicy,
     TedanaClassificationSelection,
     TedanaMetricSelection,
     TedanaPolicy,
 )
-from glm_prep.types import Vector
 
-MOTION_BASE = [
+_MOTION_BASE = [
     "trans_x",
     "trans_y",
     "trans_z",
@@ -43,67 +50,91 @@ def deriv_square_name(name: str) -> str:
     return f"{name}_derivative1_power2"
 
 
-def build_motion(policy: MotionPolicy, df: pd.DataFrame) -> list[Regressor]:
+def validate_motion_model(model: MotionModel, motion: MotionConfounds) -> None:
+    motion_key_set = set(motion.keys())
+
+    missing: set[str] = set()
+
+    if model in {MotionModel.DERIVATIVES, MotionModel.FULL}:
+        required = {derivative_name(x) for x in _MOTION_BASE}
+        missing.update(required - motion_key_set)
+
+    if model == MotionModel.FULL:
+        required = {square_name(x) for x in _MOTION_BASE}
+        required.update(deriv_square_name(x) for x in _MOTION_BASE)
+        missing.update(required - motion_key_set)
+
+    if missing:
+        raise DataContractError(
+            f"Missing motion confounds required by model {model.value}:\n"
+            + "\n".join(f"  - {m!r}" for m in missing)
+        )
+
+
+def build_motion(policy: MotionPolicy, motion: MotionConfounds) -> list[Regressor]:
+
+    model = policy.model
+    validate_motion_model(model, motion)
 
     regressors: list[Regressor] = []
 
     def build_regressor(
-        name: str, kind: str, base_name: str, df: pd.DataFrame
+        name: str,
+        kind: str,
+        base_name: str,
+        motion: MotionConfounds,
     ) -> Regressor:
-        if name not in df.columns:
-            raise DataContractError(f"Missing motion column '{name}' in confounds")
-
-        values: Vector = ensure_1d(df[name].to_numpy())
-        col_idx: int = len(columns)
-
+        values = motion[name]
         info = RegressorInfo(
             name=name,
             source=RegressorSource.MOTION,
-            column=col_idx,
+            column=-1,
             metadata={
                 "motion_param": base_name,
                 "term": kind,  # base, derivative, square, derivative_square
             },
+            diagnostics=RegressorDiagnostics.from_values(values),
         )
+
         return Regressor(values=values, info=info)
 
-    model = policy.model
-
     # Base parameters
-    for name in MOTION_BASE:
-        regressors.append(build_regressor(name, kind="base", base_name=name, df=df))
+    for name in _MOTION_BASE:
+        regressors.append(
+            build_regressor(name=name, kind="base", base_name=name, motion=motion)
+        )
 
     # Add derivatives
     if model in {MotionModel.DERIVATIVES, MotionModel.FULL}:
-        for name in MOTION_BASE:
+        for name in _MOTION_BASE:
             regressors.append(
                 build_regressor(
-                    derivative_name(name),
+                    name=derivative_name(name),
                     kind="derivative",
                     base_name=name,
-                    df=df,
+                    motion=motion,
                 )
             )
 
     # Add squares
     if model == MotionModel.FULL:
-        for name in MOTION_BASE:
+        for name in _MOTION_BASE:
             regressors.append(
                 build_regressor(
                     square_name(name),
                     kind="square",
                     base_name=name,
-                    df=df,
+                    motion=motion,
                 )
             )
 
-        for name in MOTION_BASE:
+        for name in _MOTION_BASE:
             regressors.append(
                 build_regressor(
                     deriv_square_name(name),
                     kind="derivative_square",
                     base_name=name,
-                    df=df,
+                    motion=motion,
                 )
             )
 
@@ -111,26 +142,32 @@ def build_motion(policy: MotionPolicy, df: pd.DataFrame) -> list[Regressor]:
 
 
 def build_drift(
+    policy: DriftPolicy,
     confounds: DriftConfounds,
 ) -> list[Regressor]:
 
     regressors: list[Regressor] = []
 
-    # ASSUMPTION: fmri prep only models drift with discrete cosine transform (DCT)
-    metadata = {
-        "model": "cosine",
-        "source": "fmri_prep",
-    }
+    if isinstance(policy.model, DriftCosineFromTSV):
+        # ASSUMPTION: fmri prep only models drift with discrete cosine transform (DCT)
+        metadata = {
+            "model": "cosine",
+            "source": "fmri_prep",
+        }
+    else:
+        raise NotImplementedError
 
-    for name in sorted:
+    for name in sorted(confounds.keys()):
+        values = confounds[name]
         regressors.append(
             Regressor(
-                values=confounds[name],
+                values=values,
                 info=RegressorInfo(
                     name=name,
                     source=RegressorSource.DRIFT,
                     column=-1,
                     metadata=metadata,
+                    diagnostics=RegressorDiagnostics.from_values(values),
                 ),
             )
         )
@@ -209,6 +246,7 @@ def build_tedana(
                         "tags": sorted(info.tags),
                         "metrics": info.metrics,
                     },
+                    diagnostics=RegressorDiagnostics.from_values(values),
                 ),
             )
         )
@@ -272,10 +310,11 @@ def build_acompcor(
 
     for name in selected_names:
         info = selected_metadata[name]
+        values = confounds[name]
 
         regressors.append(
             Regressor(
-                values=confounds[name],
+                values=values,
                 info=RegressorInfo(
                     name=name,
                     source=RegressorSource.ACOMPCOR,
@@ -285,6 +324,7 @@ def build_acompcor(
                         "variance_explained": info.variance_explained,
                         "cumulative_variance_explained": info.cumulative_variance_explained,
                     },
+                    diagnostics=RegressorDiagnostics.from_values(values),
                 ),
             )
         )
