@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from enum import Enum
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 
 from glm_prep.errors import DataContractError
+from glm_prep.locate import RunFiles
 from glm_prep.type_aliases import Matrix, Vector
 
 
@@ -18,10 +20,15 @@ class DesignMatrix:
 
     matrix: Matrix
     regressors: list[RegressorInfo]
+    provenance: DesignMatrixProvenance
 
     @property
     def ncol(self):
         return self.matrix.shape[1]
+
+    @property
+    def standardized_matrix(self) -> Matrix:
+        return (self.matrix - self.matrix.mean(axis=0)) / self.matrix.std(axis=0)
 
     @property
     def column_names(self) -> list[str]:
@@ -39,6 +46,56 @@ class DesignMatrix:
                 "The design matrix must be a 2-dimensional nparray."
                 f"  Attempted to define with {self.matrix.ndim} dimensions."
             )
+
+
+@dataclass(frozen=True)
+class DesignMatrixProvenance:
+    subject: int
+    run: int
+
+    events_file: Path
+    bold_data_file: Path
+    bold_metadata_file: Path
+
+    confound_timeseries_file: Path
+    confound_metadata_file: Path
+
+    tedana_components_file: Path | None
+    tedana_metrics_file: Path | None
+
+    policy_file: Path
+
+    @property
+    def policy_name(self):
+        return self.policy_file.stem
+
+    @classmethod
+    def from_runfiles(
+        cls,
+        run: RunFiles,
+        policy: Path,
+    ) -> DesignMatrixProvenance:
+        return cls(
+            subject=run.events.key.subject,
+            run=run.events.key.run,
+            events_file=run.events.path,
+            bold_data_file=run.bold_data.path,
+            bold_metadata_file=run.bold_metadata.path,
+            confound_timeseries_file=run.confound_timeseries.path,
+            confound_metadata_file=run.confound_metadata.path,
+            tedana_components_file=(
+                run.tedana_components.path
+                if run.tedana_components is not None
+                else None
+            ),
+            tedana_metrics_file=(
+                run.tedana_metrics.path if run.tedana_metrics is not None else None
+            ),
+            policy_file=policy,
+        )
+
+    def to_dict(self) -> dict[str, object]:
+        return asdict(self)
 
 
 @dataclass(frozen=True)
@@ -88,6 +145,18 @@ class RegressorDiagnostics:
             std=float(np.std(values)),
             min=float(np.min(values)),
             max=float(np.max(values)),
+        )
+
+    @classmethod
+    def from_dict(
+        cls,
+        x: dict[str, float],
+    ) -> RegressorDiagnostics:
+        return cls(
+            mean=float(x["mean"]),
+            std=float(x["std"]),
+            min=float(x["min"]),
+            max=float(x["max"]),
         )
 
     def to_dict(self) -> dict[str, object]:

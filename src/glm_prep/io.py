@@ -7,11 +7,12 @@ import numpy as np
 
 from glm_prep.artifacts import (
     DesignMatrix,
+    DesignMatrixProvenance,
     DesignMatrixSummary,
+    RegressorDiagnostics,
     RegressorInfo,
     RegressorSource,
 )
-from glm_prep.design import DesignMatrixProvenance
 from glm_prep.domain import RunKey
 
 
@@ -41,7 +42,28 @@ def deserialize_regressor_info(
         source=RegressorSource(data["source"]),
         column=data["column"],
         metadata=data["metadata"],
-        diagnostics=data["diagnostics"],
+        diagnostics=RegressorDiagnostics.from_dict(data["diagnostics"]),
+    )
+
+
+def deserialize_provenance(
+    data: dict[str, Any],
+) -> DesignMatrixProvenance:
+    return DesignMatrixProvenance(
+        subject=int(data["subject"]),
+        run=int(data["run"]),
+        events_file=Path(data["events_file"]),
+        bold_data_file=Path(data["bold_data_file"]),
+        bold_metadata_file=Path(data["bold_metadata_file"]),
+        confound_timeseries_file=Path(data["confound_timeseries_file"]),
+        confound_metadata_file=Path(data["confound_metadata_file"]),
+        tedana_components_file=Path(data["tedana_components_file"])
+        if "tedana_components_file" in data
+        else None,
+        tedana_metrics_file=Path(data["tedana_metrics_file"])
+        if "tedana_metrics_file" in data
+        else None,
+        policy_file=Path(data["policy_file"]),
     )
 
 
@@ -60,7 +82,6 @@ def save_design_matrix_summary(
 
 def save_design_matrix(
     design: DesignMatrix,
-    provenance: DesignMatrixProvenance,
     root: Path,
     run_key: RunKey,
 ) -> None:
@@ -74,7 +95,7 @@ def save_design_matrix(
         json.dump(
             {
                 "version": 1,
-                "provenance": provenance.to_dict(),
+                "provenance": design.provenance.to_dict(),
                 "regressors": [serialize_regressor_info(r) for r in design.regressors],
             },
             f,
@@ -91,8 +112,10 @@ def load_design_matrix(root: Path, run_key: RunKey) -> DesignMatrix:
         data = json.load(f)
 
     regressors = [deserialize_regressor_info(x) for x in data["regressors"]]
+    provenance = deserialize_provenance(data["provenance"])
 
     return DesignMatrix(
         matrix=matrix,
         regressors=regressors,
+        provenance=provenance,
     )

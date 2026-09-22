@@ -33,10 +33,10 @@ def figure_prefix(root: Path, run_key: RunKey) -> Path:
 
 
 def design_matrix_to_dataframe(
-    design: DesignMatrix,
+    design: DesignMatrix, standardized: bool = False
 ) -> pd.DataFrame:
     return pd.DataFrame(
-        design.matrix,
+        design.standardized_matrix if standardized else design.matrix,
         columns=[r.name for r in design.regressors],
     )
 

@@ -188,18 +188,19 @@ def run(
                 policy.tedana, tedana_components, metadata=tedana_metrics
             )
 
+        provenance = DesignMatrixProvenance.from_runfiles(run, policy=policy_path)
+
         design_matrix = build_design_matrix(
             stimulus=stimulus_regressors,
             drift=drift_regressors,
             motion=motion_regressors,
             acompcor=acompcor_regressors,
             tedana=tedana_regressors,
+            provenance=provenance,
         )
 
-        provenance = DesignMatrixProvenance.from_runfiles(run, policy=policy_path)
-
         save_design_matrix(
-            design_matrix, provenance, root=derivatives_root_for_policy, run_key=run_key
+            design_matrix, root=derivatives_root_for_policy, run_key=run_key
         )
 
         summary = summarize_design_matrix(design_matrix)

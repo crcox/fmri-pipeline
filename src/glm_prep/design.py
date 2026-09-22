@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
-from dataclasses import asdict, dataclass, replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, cast
 
@@ -12,6 +12,7 @@ from nilearn.glm.first_level import make_first_level_design_matrix
 
 from glm_prep.artifacts import (
     DesignMatrix,
+    DesignMatrixProvenance,
     DesignMatrixSummary,
     Regressor,
     RegressorDiagnostics,
@@ -21,8 +22,8 @@ from glm_prep.artifacts import (
 from glm_prep.builders import build_acompcor, build_drift, build_motion, build_tedana
 from glm_prep.confounds import Confounds, ensure_1d
 from glm_prep.errors import DataContractError
-from glm_prep.locate import RunFiles
 from glm_prep.models import GLMPolicy, StimulusPolicy
+from glm_prep.type_aliases import Matrix
 
 _REQUIRED_COLUMNS: tuple[str, ...] = ("onset", "duration", "stimulus")
 
@@ -66,52 +67,6 @@ class Event:
     onset: float
     duration: float
     stimulus: str
-
-
-@dataclass(frozen=True)
-class DesignMatrixProvenance:
-    subject: int
-    run: int
-
-    events_file: str
-    bold_data_file: str
-    bold_metadata_file: str
-
-    confound_timeseries_file: str
-    confound_metadata_file: str
-
-    tedana_components_file: str | None
-    tedana_metrics_file: str | None
-
-    policy_file: str
-
-    @classmethod
-    def from_runfiles(
-        cls,
-        run: RunFiles,
-        policy: Path,
-    ) -> DesignMatrixProvenance:
-        return cls(
-            subject=run.events.key.subject,
-            run=run.events.key.run,
-            events_file=str(run.events.path),
-            bold_data_file=str(run.bold_data.path),
-            bold_metadata_file=str(run.bold_metadata.path),
-            confound_timeseries_file=str(run.confound_timeseries.path),
-            confound_metadata_file=str(run.confound_metadata.path),
-            tedana_components_file=(
-                str(run.tedana_components.path)
-                if run.tedana_components is not None
-                else None
-            ),
-            tedana_metrics_file=(
-                str(run.tedana_metrics.path) if run.tedana_metrics is not None else None
-            ),
-            policy_file=str(policy),
-        )
-
-    def to_dict(self) -> dict[str, object]:
-        return asdict(self)
 
 
 def read_events(path: Path) -> pd.DataFrame:
@@ -224,7 +179,9 @@ def summarize_design_matrix(design: DesignMatrix) -> DesignMatrixSummary:
     )
 
 
-def assemble_design_matrix(regressors: list[Regressor]) -> DesignMatrix:
+def assemble_design_matrix(
+    regressors: list[Regressor],
+) -> tuple[Matrix, list[RegressorInfo]]:
 
     if not regressors:
         raise DataContractError("No regressors selected.")
@@ -239,11 +196,9 @@ def assemble_design_matrix(regressors: list[Regressor]) -> DesignMatrix:
             )
 
     matrix = np.column_stack([r.values for r in regressors])
+    info = [replace(r.info, column=i) for i, r in enumerate(regressors)]
 
-    return DesignMatrix(
-        matrix=matrix,
-        regressors=[replace(r.info, column=i) for i, r in enumerate(regressors)],
-    )
+    return matrix, info
 
 
 def build_design_matrix(
@@ -252,10 +207,13 @@ def build_design_matrix(
     motion: list[Regressor],
     acompcor: list[Regressor],
     tedana: list[Regressor],
+    provenance: DesignMatrixProvenance,
 ) -> DesignMatrix:
     regressors = stimulus + drift + motion + acompcor + tedana
 
-    return assemble_design_matrix(regressors)
+    matrix, info = assemble_design_matrix(regressors)
+
+    return DesignMatrix(matrix=matrix, regressors=info, provenance=provenance)
 
 
 def prepare_design_matrix(
@@ -263,6 +221,7 @@ def prepare_design_matrix(
     confounds: Confounds,
     events: list[Event],
     frame_times: np.ndarray,
+    provenance: DesignMatrixProvenance,
 ) -> DesignMatrix:
     stimulus = build_stimulus_simple(policy.stimulus, events, frame_times)
 
@@ -293,4 +252,5 @@ def prepare_design_matrix(
         motion=motion,
         acompcor=acompcor,
         tedana=tedana,
+        provenance=provenance,
     )
